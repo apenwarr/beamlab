@@ -3,7 +3,7 @@
 var pluscolor = new Uint8ClampedArray([0,128,255,255]);
 var minuscolor = new Uint8ClampedArray([255,64,64,255]);
 
-var xsize = 1000, ysize = 1000;
+var xsize = 200, ysize = 200;
 var canvas = document.getElementById('field');
 canvas.width = xsize;
 canvas.height = ysize;
@@ -17,39 +17,42 @@ var wavelength_m = 3e8 / 2.4e9;
 
 
 function pointSource(x0, y0, phase0, power_1m) {
-  var areabuf = new ArrayBuffer(4 * xsize * ysize);
-  var area = new Float32Array(areabuf);
+  var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
+  var gains = new Float32Array(buf, 0, xsize * ysize);
+  var phases = new Float32Array(buf, 4 * xsize * ysize);
   
   x0 *= xsize;
   y0 *= ysize;
 
-  for (var i = 0; i < area.length; i++) {
+  for (var i = 0; i < gains.length; i++) {
     var y = i / xsize;
     var x = i % xsize;
     var dy = (y - y0) * room_size_m / xsize;
     var dx = (x - x0) * room_size_m / ysize;
     var r = Math.sqrt(dy*dy + dx*dx);
-    var phase = (phase0 + r / wavelength_m) % (2 * Math.PI);
-    area[i] = power_1m / (r * r);
-    // FIXME store the actual phase
-    if (phase > Math.PI) area[i] = -area[i];
+    phases[i] = (phase0 + r / wavelength_m) % (2 * Math.PI);
+    gains[i] = power_1m / (r * r);
   }
-  return area;
+  return { gains: gains, phases: phases };
 }
 
 
-// TODO: this is WRONG!  Must properly add using phases.
 function addAreas(areas) {
-  var areabuf = new ArrayBuffer(4 * xsize * ysize);
-  var area = new Float32Array(areabuf);
+  var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
+  var gains = new Float32Array(buf, 0, xsize * ysize);
+  var phases = new Float32Array(buf, 4 * xsize * ysize);
 
   for (var ai = 0; ai < areas.length; ai++) {
     var a = areas[ai];
-    for (var i = 0; i < a.length; i++) {
-      area[i] += a[i];
+    for (var i = 0; i < a.gains.length; i++) {
+      var x = gains[i]*Math.cos(phases[i]) + a.gains[i]*Math.cos(a.phases[i]);
+      var y = gains[i]*Math.sin(phases[i]) + a.gains[i]*Math.sin(a.phases[i]);
+      gains[i] = Math.sqrt(x*x + y*y);
+      phases[i] = Math.atan2(y, x);
+      if (phases[i] < 0) phases[i] += 2 * Math.PI;
     }
   }
-  return area;
+  return { gains: gains, phases: phases };
 }
 
 
@@ -71,14 +74,17 @@ function setPix(img, i, val) {
 
 
 var a1 = pointSource(0.3, 0.3, 0, 1);
+var a2;
 var cx = 0.3, cy = 0.3 + wavelength_m/room_size_m*10/2;
+var area;
 
 function render() {
-  var a2 = pointSource(cx, cy, Math.PI, 1);
-  var area = addAreas([a1, a2]);
+  a2 = pointSource(cx, cy, Math.PI, 1);
+  area = addAreas([a1, a2]);
 
-  for (var i = 0; i < area.length; i++) {
-    setPix(img, i, area[i]);
+  for (var i = 0; i < area.gains.length; i++) {
+    var sgn = area.phases[i] > Math.PI ? -1 : 1;
+    setPix(img, i, area.gains[i] * sgn);
   }
   ctx.putImageData(img, 0, 0);
 }
