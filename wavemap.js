@@ -3,7 +3,7 @@
 var pluscolor = new Uint8ClampedArray([0,128,255,255]);
 var minuscolor = new Uint8ClampedArray([255,64,64,255]);
 
-var xsize = 200, ysize = 200;
+var xsize = 400, ysize = 400;
 var canvas = document.getElementById('field');
 canvas.width = xsize;
 canvas.height = ysize;
@@ -12,7 +12,7 @@ var img = ctx.createImageData(xsize, ysize);
 
 
 var room_size_m = 25;
-var dB_max = 30, dB_min = -60;
+var dB_max = 33, dB_min = -30;
 var wavelength_m = 3e8 / 2.4e9;
 
 
@@ -31,6 +31,7 @@ function pointSource(x0, y0, phase0, power_1m) {
     var dx = (x - x0) * room_size_m / ysize;
     var r = Math.sqrt(dy*dy + dx*dx);
     phases[i] = (phase0 + r / wavelength_m) % (2 * Math.PI);
+    //r = 1; // FIXME
     gains[i] = power_1m / (r * r);
   }
   return { gains: gains, phases: phases };
@@ -75,11 +76,11 @@ function setPix(img, i, val) {
 
 var a1 = pointSource(0.3, 0.3, 0, 1);
 var a2;
-var cx = 0.3, cy = 0.3 + wavelength_m/room_size_m*10/2;
+var cx = 0.3, cy = 0.3 + wavelength_m/room_size_m*7/2;
 var area;
 
 function render() {
-  a2 = pointSource(cx, cy, Math.PI, 1);
+  a2 = pointSource(cx, cy, Math.PI*0, 1);
   area = addAreas([a1, a2]);
 
   for (var i = 0; i < area.gains.length; i++) {
