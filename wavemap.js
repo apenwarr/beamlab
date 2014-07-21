@@ -3,7 +3,7 @@
 var pluscolor = new Uint8ClampedArray([0,128,255,255]);
 var minuscolor = new Uint8ClampedArray([255,64,64,255]);
 
-var xsize = 500, ysize = 500;
+var xsize = 1000, ysize = 1000;
 var canvas = document.getElementById('field');
 canvas.width = xsize;
 canvas.height = ysize;
@@ -70,8 +70,8 @@ function setPix(img, i, val) {
 }
 
 
-var cx = 0.3, cy = 0.4;
 var a1 = pointSource(0.3, 0.3, 0, 1);
+var cx = 0.3, cy = 0.3 + wavelength_m/room_size_m*10/2;
 
 function render() {
   var a2 = pointSource(cx, cy, Math.PI, 1);
@@ -88,7 +88,6 @@ var rendering = 0;
 
 canvas.onmousemove = function(e) {
   if (rendering) {
-    console.debug(e);
     cx = e.x / canvas.clientWidth;
     cy = e.y / canvas.clientHeight;
     render();
