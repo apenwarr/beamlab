@@ -3,7 +3,7 @@
 var pluscolor = new Uint8ClampedArray([0,128,255,255]);
 var minuscolor = new Uint8ClampedArray([255,64,64,255]);
 
-var xsize = 1000, ysize = 1000;
+var xsize = 500, ysize = 500;
 var canvas = document.getElementById('field');
 canvas.width = xsize;
 canvas.height = ysize;
@@ -11,7 +11,7 @@ var ctx = canvas.getContext('2d');
 var img = ctx.createImageData(xsize, ysize);
 
 
-var px_per_m = 40; // pixels per meter
+var room_size_m = 25;
 var dB_max = 30, dB_min = -60;
 var wavelength_m = 3e8 / 2.4e9;
 
@@ -19,15 +19,19 @@ var wavelength_m = 3e8 / 2.4e9;
 function pointSource(x0, y0, phase0, power_1m) {
   var areabuf = new ArrayBuffer(4 * xsize * ysize);
   var area = new Float32Array(areabuf);
+  
+  x0 *= xsize;
+  y0 *= ysize;
 
   for (var i = 0; i < area.length; i++) {
     var y = i / xsize;
     var x = i % xsize;
-    var dy = (y - y0) / px_per_m;
-    var dx = (x - x0) / px_per_m;
+    var dy = (y - y0) * room_size_m / xsize;
+    var dx = (x - x0) * room_size_m / ysize;
     var r = Math.sqrt(dy*dy + dx*dx);
     var phase = (phase0 + r / wavelength_m) % (2 * Math.PI);
     area[i] = power_1m / (r * r);
+    // FIXME store the actual phase
     if (phase > Math.PI) area[i] = -area[i];
   }
   return area;
@@ -66,8 +70,8 @@ function setPix(img, i, val) {
 }
 
 
-var cx = 300, cy = 400;
-var a1 = pointSource(300, 300, 0, 1);
+var cx = 0.3, cy = 0.4;
+var a1 = pointSource(0.3, 0.3, 0, 1);
 
 function render() {
   var a2 = pointSource(cx, cy, Math.PI, 1);
@@ -85,8 +89,8 @@ var rendering = 0;
 canvas.onmousemove = function(e) {
   if (rendering) {
     console.debug(e);
-    cx = e.x / canvas.clientWidth * xsize;
-    cy = e.y / canvas.clientHeight * ysize;
+    cx = e.x / canvas.clientWidth;
+    cy = e.y / canvas.clientHeight;
     render();
   }
 }
