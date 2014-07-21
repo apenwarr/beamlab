@@ -45,6 +45,7 @@ function addAreas(areas) {
 
   for (var ai = 0; ai < areas.length; ai++) {
     var a = areas[ai];
+    if (!a) continue;
     for (var i = 0; i < a.gains.length; i++) {
       var x = gains[i]*Math.cos(phases[i]) + a.gains[i]*Math.cos(a.phases[i]);
       var y = gains[i]*Math.sin(phases[i]) + a.gains[i]*Math.sin(a.phases[i]);
@@ -74,29 +75,61 @@ function setPix(img, i, val) {
 }
 
 
-var a1 = pointSource(0.3, 0.3, 0, 1);
-var a2;
-var cx = 0.3, cy = 0.3 + wavelength_m/room_size_m*7/2;
+var sources = [[0.3, 0.3, 0, 1],
+	       [0.3, 0.3 + wavelength_m/room_size_m*7/2, 0, 1],
+	       [0.3 + wavelength_m/room_size_m*7/2, 0.3, 0, 1]];
+var areas = [];
 var area;
 
+
+function renderPoint(i) {
+  var s = sources[i];
+  areas[i] = pointSource(s[0], s[1], s[2], s[3]);
+}
+
+
+for (var i = 0; i < sources.length; i++) {
+  renderPoint(i);
+}
+
 function render() {
-  a2 = pointSource(cx, cy, Math.PI*0, 1);
-  area = addAreas([a1, a2]);
+  area = addAreas(areas);
 
   for (var i = 0; i < area.gains.length; i++) {
-    var sgn = area.phases[i] > Math.PI ? -1 : 1;
+    var sgn = (area.phases[i] > Math.PI/2 && area.phases[i] < Math.PI*3/2) ?
+	-1 : 1;
     setPix(img, i, area.gains[i] * sgn);
   }
   ctx.putImageData(img, 0, 0);
+  
+  console.debug("power at point:", area.gains[area.gains.length-1])
 }
 
 render();
 var rendering = 0;
+var movewhich = 0;
+
+document.body.onkeypress = function(e) {
+  if (e.charCode >= 0x31 && e.charCode <= 0x39) {
+    movewhich = e.charCode - 0x31;
+    if (areas[movewhich]) {
+      areas[movewhich] = undefined;
+    } else {
+      if (!sources[movewhich]) {
+	sources[movewhich] = [Math.random(), Math.random(), 0, 1];
+      }
+      renderPoint(movewhich);
+    }
+    render();
+  }
+}
 
 canvas.onmousemove = function(e) {
   if (rendering) {
-    cx = e.x / canvas.clientWidth;
-    cy = e.y / canvas.clientHeight;
+    var s = sources[movewhich];
+    s[0] = e.x / canvas.clientWidth;
+    s[1] = e.y / canvas.clientHeight;
+    renderPoint(movewhich);
     render();
   }
 }
