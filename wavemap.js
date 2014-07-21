@@ -11,8 +11,7 @@ var ctx = canvas.getContext('2d');
 var img = ctx.createImageData(xsize, ysize);
 
 
-var room_size_m = 25;
-var dB_max = 33, dB_min = -30;
+var room_size_m = 40;
 var wavelength_m = 3e8 / 2.4e9;
 
 
@@ -31,7 +30,6 @@ function pointSource(x0, y0, phase0, power_1m) {
     var dx = (x - x0) * room_size_m / ysize;
     var r = Math.sqrt(dy*dy + dx*dx);
     phases[i] = (phase0 + r / wavelength_m) % (2 * Math.PI);
-    //r = 1; // FIXME
     gains[i] = power_1m / (r * r);
   }
   return { gains: gains, phases: phases };
@@ -61,13 +59,11 @@ function addAreas(areas) {
 function setPix(img, i, val) {
   if (val >= 0) {
     var c = pluscolor;
-    var dB = 10*Math.log(val, 10);
   } else {
     var c = minuscolor;
-    var dB = 10*Math.log(-val, 10);
+    val = -val;
   }
-  var scale = (dB - dB_min) / (dB_max - dB_min);
-  if (scale < 0) scale = 0;
+  var scale = Math.pow(val, 0.7);
   for (var j = 0; j < 3; j++) {
     img.data[4*i + j] = c[j] * scale;
   }
@@ -102,7 +98,13 @@ function render() {
   }
   ctx.putImageData(img, 0, 0);
   
-  console.debug("power at point:", area.gains[area.gains.length-1])
+  var ptx = 0.6 * xsize, pty = 0.6 * ysize;
+  var pti = pty * xsize + ptx;
+  ctx.strokeStyle = 'white';
+  ctx.ellipse(ptx, pty, xsize/100, ysize/100, 0, Math.PI*2, 0);
+  ctx.stroke();
+  
+  console.debug("power at point:", area.gains[pti])
 }
 
 render();
@@ -116,7 +118,8 @@ document.body.onkeypress = function(e) {
       areas[movewhich] = undefined;
     } else {
       if (!sources[movewhich]) {
-	sources[movewhich] = [Math.random(), Math.random(), 0, 1];
+	sources[movewhich] = [0.3, 0.3 + wavelength_m/room_size_m*8/2*movewhich, 
+			      0, 1];
       }
       renderPoint(movewhich);
     }
