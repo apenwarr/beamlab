@@ -7,6 +7,7 @@ canvas.height = ysize;
 var ctx = canvas.getContext('2d');
 var img = ctx.createImageData(xsize, ysize);
 
+var rx_x = 0.6, rx_y = 0.6
 
 var room_size_m = 10;
 var wavelength_m = 3e8 / 2.4e9;
@@ -18,6 +19,11 @@ var cosa_size = cosa_wrap + sina_ofs;
 var cos_approx = new Float32Array(cosa_size);
 for (var cosi = 0; cosi < cosa_size; cosi++) {
   cos_approx[cosi] = Math.cos(cosi * Math.PI * 2 / cosa_wrap);
+}
+
+
+function getMag(real, imag) {
+  return Math.sqrt(real*real + imag*imag);
 }
 
 
@@ -148,7 +154,7 @@ function render() {
   if (benchmark) console.debug('copy time:', window.performance.now() - st);
   ctx.putImageData(img, 0, 0);
   
-  var ptx = 0.6 * xsize, pty = 0.6 * ysize;
+  var ptx = rx_x * xsize, pty = rx_y * ysize;
   var pti = pty * xsize + ptx;
   ctx.strokeStyle = 'white';
   ctx.ellipse(ptx, pty, xsize/100, ysize/100, 0, Math.PI*2, 0);
@@ -181,8 +187,8 @@ document.body.onkeypress = function(e) {
     } else {
       if (!sources[movewhich]) {
 	sources[movewhich] = {
-          x: 0.3,
-	  y: 0.3 + wavelength_m/room_size_m*8/2*movewhich, 
+          y: 0.3,
+	  x: 0.3 - wavelength_m/room_size_m*3/2*movewhich, 
 	  phase: 0,
 	  gain: 1
 	};
@@ -190,23 +196,88 @@ document.body.onkeypress = function(e) {
       renderPointSource(movewhich);
     }
     render();
-  } else {
-    if (c == 'o') {
-      // optimize beamforming for receiver.  We want to zero out all the
-      // phases at the target point.
-      var ptx = 0.6 * xsize, pty = 0.6 * ysize;
-      var pti = pty * xsize + ptx;
-      for (var ai = 0; ai < areas.length; ai++) {
-	var s = sources[ai];
-	var a = areas[ai];
-	if (!a || !s) continue;
-	var current_phase = getPhase(a.reals[pti], a.imags[pti]);
-	s.phase -= current_phase;
-	while (s.phase < 0) s.phase += 2 * Math.PI;
-	renderPointSource(ai);
-      }
-      render();
+  } else if (c == 'o') {
+    // optimize beamforming for receiver.  We want to zero out all the
+    // phases at the target point.
+    var ptx = rx_x * xsize, pty = rx_y * ysize;
+    var pti = pty * xsize + ptx;
+    for (var ai = 0; ai < areas.length; ai++) {
+      var s = sources[ai];
+      var a = areas[ai];
+      if (!a || !s) continue;
+      var current_phase = getPhase(a.reals[pti], a.imags[pti]);
+      s.phase -= current_phase;
+      while (s.phase < 0) s.phase += 2 * Math.PI;
+      renderPointSource(ai);
     }
+    render();
+  } else if (c == 'O') {
+    // optimize *against* the receiver: try to make it so the receiver
+    // can't hear us at all by causing negative interference at his
+    // location.
+    //
+    // To make this work, we need to divide the signals up into "positive"
+    // and "negative" bins, where each bin contains roughly the same
+    // magnitude.  Then one gets phase 0 and one gets phase pi (ie. inverted)
+    // for maximum interference.  I'm sure there's some kind of efficient
+    // bin-packing algorithm for this, but there are only at most 9
+    // transmitters, so let's just brute force it.
+    // 
+    // In theory we could also fiddle with transmit power on each antenna
+    // to try to get a more perfect match.  But that's complicated.
+    // 
+    // FIXME: I think there's probably a better way to do this by being
+    // more flexible about the angles, rather than just limiting to 0 and pi.
+    // (I know this because 'randomize' sometimes gives even better results :))
+    var ptx = rx_x * xsize, pty = rx_y * ysize;
+    var pti = pty * xsize + ptx;
+    
+    var getBinMag = function(binbits) {
+      var mag = 0;
+      for (var bit = 0; bit < areas.length; bit++) {
+	var a = areas[bit];
+	if (!a) continue;
+	if (binbits & (1 << bit)) {
+	  mag += getMag(a.reals[pti], a.imags[pti]);
+	}
+      }
+      return mag;
+    }
+    
+    var best = 0, bestmag = 0, maxmag = getBinMag((1 << areas.length) - 1);
+    for (var binbits = 0; binbits < (1 << areas.length); binbits++) {
+      var mag = getBinMag(binbits);
+      if (mag < maxmag/2 && mag > bestmag) {
+	bestmag = mag;
+	best = binbits;
+      }
+    }
+    
+    console.debug('anti-optimize: bestmag:', bestmag, 'maxmag:', maxmag);
+    
+    for (var bit = 0; bit < areas.length; bit++) {
+      var s = sources[bit];
+      var a = areas[bit];
+      if (!a) continue;
+      var current_phase = getPhase(a.reals[pti], a.imags[pti]);
+      if (best & (1 << bit)) {
+	s.phase -= current_phase;
+      } else {
+	s.phase -= current_phase - Math.PI;
+      }
+      renderPointSource(bit);
+    }
+    render();
+  } else if (c == 'x') {
+    // randomize transmitter phases.
+    for (var ai = 0; ai < areas.length; ai++) {
+      var s = sources[ai];
+      var a = areas[ai];
+      if (!a) continue;
+      s.phase = Math.random() * Math.PI * 2;
+      renderPointSource(ai);
+    }
+    render();
   }
 }
 
