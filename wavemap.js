@@ -32,12 +32,17 @@ function pointSource(x0, y0, phase0, power_1m) {
 if (1) {
   x0 *= xsize;
   y0 *= ysize;
+  var y_hop = room_size_m / xsize;
+  var x_hop = room_size_m / ysize;
+  var x_hop2 = x_hop * x_hop;
   
+  var dy = -y0 * y_hop;
+  var i = 0;
   for (var y = 0; y < ysize; y++) {
-    var i = y * xsize;
-    var dy = (y - y0) * room_size_m / xsize;
+    dy += x_hop;
+    var dx = -x0 * x_hop;
     for (var x = 0; x < xsize; x++, i++) {
-      var dx = (x - x0) * room_size_m / ysize;
+      dx += x_hop;
       var r2 = dy*dy + dx*dx;
       var r = Math.sqrt(r2);
       var phase = phase0 * wavelength_m + r;
