@@ -1,8 +1,4 @@
 'use strict';
-
-var pluscolor = new Uint8ClampedArray([0,128,255,255]);
-var minuscolor = new Uint8ClampedArray([255,64,64,255]);
-
 var xsize = 400, ysize = 400;
 var canvas = document.getElementById('field');
 canvas.width = xsize;
@@ -19,19 +15,24 @@ function pointSource(x0, y0, phase0, power_1m) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
   var gains = new Float32Array(buf, 0, xsize * ysize);
   var phases = new Float32Array(buf, 4 * xsize * ysize);
-  
+  var st = window.performance.now();
+if (1) {
   x0 *= xsize;
   y0 *= ysize;
-
-  for (var i = 0; i < gains.length; i++) {
-    var y = i / xsize;
-    var x = i % xsize;
-    var dy = (y - y0) * room_size_m / xsize;
-    var dx = (x - x0) * room_size_m / ysize;
-    var r = Math.sqrt(dy*dy + dx*dx);
-    phases[i] = (phase0 + r / wavelength_m) % (2 * Math.PI);
-    gains[i] = power_1m / (r * r);
+  
+  for (var y = 0; y < ysize; y++) {
+    var i = y * xsize;
+    for (var x = 0; x < xsize; x++, i++) {
+      var dy = (y - y0) * room_size_m / xsize;
+      var dx = (x - x0) * room_size_m / ysize;
+      var r2 = dy*dy + dx*dx;
+      var r = Math.sqrt(r2);
+      phases[i] = (phase0 + r / wavelength_m) % (2 * Math.PI);
+      gains[i] = power_1m / r2;
+    }
   }
+  console.debug('pointSource render time:', window.performance.now() - st);
+}
   return { gains: gains, phases: phases };
 }
 
@@ -40,12 +41,14 @@ function addAreas(areas) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
   var gains = new Float32Array(buf, 0, xsize * ysize);
   var phases = new Float32Array(buf, 4 * xsize * ysize);
-  
+
   var numareas = 0;
   for (var ai = 0; ai < areas.length; ai++) {
     if (areas[ai]) numareas++;
   }
-
+  
+  var st = window.performance.now();
+if (1) {
   for (var ai = 0; ai < areas.length; ai++) {
     var a = areas[ai];
     if (!a) continue;
@@ -62,22 +65,9 @@ function addAreas(areas) {
       if (phases[i] < 0) phases[i] += 2 * Math.PI;
     }
   }
-  return { gains: gains, phases: phases };
+  console.debug('addAreas time:', window.performance.now() - st);
 }
-
-
-function setPix(img, i, val) {
-  if (val >= 0) {
-    var c = pluscolor;
-  } else {
-    var c = minuscolor;
-    val = -val;
-  }
-  var scale = Math.pow(val, 0.5);
-  for (var j = 0; j < 3; j++) {
-    img.data[4*i + j] = c[j] * scale;
-  }
-  img.data[4*i + 3] = 255;
+  return { gains: gains, phases: phases };
 }
 
 
@@ -88,24 +78,43 @@ var areas = [];
 var area;
 
 
-function renderPoint(i) {
+function renderPointSource(i) {
   var s = sources[i];
   areas[i] = pointSource(s.x, s.y, s.phase, s.gain);
 }
 
 
 for (var i = 0; i < sources.length; i++) {
-  renderPoint(i);
+  renderPointSource(i);
 }
+
 
 function render() {
   area = addAreas(areas);
-
-  for (var i = 0; i < area.gains.length; i++) {
-    var sgn = (area.phases[i] > Math.PI/2 && area.phases[i] < Math.PI*3/2) ?
-	-1 : 1;
-    setPix(img, i, area.gains[i] * sgn);
+  var phases = area.phases;
+  var gains = area.gains;
+  var st = window.performance.now();
+if (1) {
+  for (var i = 0; i < gains.length; i++) {
+    var scale = Math.pow(gains[i], 0.5);
+    var v = 256 * scale;
+    if (phases[i] > Math.PI/2 && phases[i] < Math.PI*3/2) {
+      // negative amplitude
+      img.data[4*i + 0] = v;
+      img.data[4*i + 1] = v >> 2;
+      img.data[4*i + 2] = v >> 2;
+      img.data[4*i + 3] = 255;
+    } else {
+      // positive amplitude
+      var v = 256 * scale;
+      img.data[4*i + 0] = 0;
+      img.data[4*i + 1] = v >> 1;
+      img.data[4*i + 2] = v >> 0;
+      img.data[4*i + 3] = 255;
+    }
   }
+}
+//  console.debug('copy time:', window.performance.now() - st);
   ctx.putImageData(img, 0, 0);
   
   var ptx = 0.6 * xsize, pty = 0.6 * ysize;
@@ -144,7 +153,7 @@ document.body.onkeypress = function(e) {
 	  gain: 1
 	};
       }
-      renderPoint(movewhich);
+      renderPointSource(movewhich);
     }
     render();
   }
@@ -155,7 +164,7 @@ canvas.onmousemove = function(e) {
     var s = sources[movewhich];
     s.x = e.x / canvas.clientWidth;
     s.y = e.y / canvas.clientHeight;
-    renderPoint(movewhich);
+    renderPointSource(movewhich);
     render();
   }
 }
@@ -171,7 +180,7 @@ canvas.onmouseup = function(e) {
 
 canvas.onmousewheel = function(e) {
   sources[movewhich].phase += e.wheelDeltaX / 500 * Math.PI;
-  renderPoint(movewhich);
+  renderPointSource(movewhich);
   render();
 }
 
