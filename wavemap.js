@@ -8,9 +8,8 @@ var ctx = canvas.getContext('2d');
 var img = ctx.createImageData(xsize, ysize);
 
 
-var room_size_m = 40;
+var room_size_m = 10;
 var wavelength_m = 3e8 / 2.4e9;
-wavelength_m = 1;  // FIXME: looks prettier this way, though less accurate
 
 var cosa_scale = 256;
 var cosa_wrap = (cosa_scale * wavelength_m) | 0;
