@@ -1,5 +1,5 @@
 'use strict';
-var benchmark = 1;
+var benchmark = 0;
 var xsize = 1000, ysize = 1000;
 var canvas = document.getElementById('field');
 canvas.width = xsize;
@@ -28,7 +28,7 @@ function pointSource(x0, y0, phase0, power_1m) {
   var gains = new Float32Array(xsize * ysize);
   var phases = new Uint32Array(xsize * ysize);
   var st = window.performance.now();
-if (1) {
+
   x0 *= xsize;
   y0 *= ysize;
   var y_hop = room_size_m / xsize;
@@ -58,7 +58,6 @@ if (1) {
   }
 
   if (benchmark) console.debug('pointSource:', window.performance.now() - st);
-}
   return { reals: reals, imags: imags };
 }
 
@@ -79,7 +78,6 @@ function addAreas(areas) {
   var regulatory_factor = 1 / Math.sqrt(numareas);  
   
   var st = window.performance.now();
-if (1) {
   for (var ai = 0; ai < areas.length; ai++) {
     var a = areas[ai];
     if (!a) continue;
@@ -91,7 +89,6 @@ if (1) {
     }
   }
   if (benchmark) console.debug('addAreas:', window.performance.now() - st);
-}
   return { reals: reals, imags: imags };
 }
 
@@ -119,7 +116,6 @@ function render() {
   var reals = area.reals;
   var imags = area.imags;
   var st = window.performance.now();
-if (1) {
   for (var i = 0; i < reals.length; i++) {
     var real = reals[i], imag = imags[i];
     var gain = Math.sqrt(real*real + imag*imag);
@@ -144,7 +140,6 @@ if (1) {
     }
   }
   if (benchmark) console.debug('copy time:', window.performance.now() - st);
-}
   ctx.putImageData(img, 0, 0);
   
   var ptx = 0.6 * xsize, pty = 0.6 * ysize;
