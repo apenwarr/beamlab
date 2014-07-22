@@ -10,13 +10,15 @@ var img = ctx.createImageData(xsize, ysize);
 
 var room_size_m = 40;
 var wavelength_m = 3e8 / 2.4e9;
+wavelength_m = 1;  // FIXME: looks prettier this way, though less accurate
 
-var sina_ofs = Math.floor(256 * Math.PI / 2);
-var cosa_wrap = Math.floor(256 * Math.PI * 2);
-var cosa_size = Math.floor(cosa_wrap + sina_ofs);
+var cosa_scale = 256;
+var cosa_wrap = (cosa_scale * wavelength_m) | 0;
+var sina_ofs = cosa_wrap >> 2;
+var cosa_size = cosa_wrap + sina_ofs;
 var cos_approx = new Float32Array(cosa_size);
 for (var cosi = 0; cosi < cosa_size; cosi++) {
-  cos_approx[cosi] = Math.cos(cosi/256);
+  cos_approx[cosi] = Math.cos(cosi * Math.PI * 2 / cosa_wrap);
 }
 
 
@@ -38,9 +40,9 @@ if (1) {
       var dx = (x - x0) * room_size_m / ysize;
       var r2 = dy*dy + dx*dx;
       var r = Math.sqrt(r2);
-      var phase = phase0 + r / wavelength_m;
+      var phase = phase0 * wavelength_m + r;
       gains[i] = power_1m / r2;
-      phases[i] = (phase * 256) % cosa_wrap;
+      phases[i] = (phase * cosa_scale) % cosa_wrap;
     }
   }
   
