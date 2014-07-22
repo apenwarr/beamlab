@@ -11,6 +11,14 @@ var img = ctx.createImageData(xsize, ysize);
 var room_size_m = 40;
 var wavelength_m = 3e8 / 2.4e9;
 
+var sina_ofs = Math.floor(256 * Math.PI / 2);
+var cosa_wrap = Math.floor(256 * Math.PI * 2);
+var cosa_size = Math.floor(cosa_wrap + sina_ofs);
+var cos_approx = new Float32Array(cosa_size);
+for (var cosi = 0; cosi < cosa_size; cosi++) {
+  cos_approx[cosi] = Math.cos(cosi/256);
+}
+
 
 function pointSource(x0, y0, phase0, power_1m) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
@@ -30,8 +38,9 @@ if (1) {
       var r = Math.sqrt(r2);
       var phase = phase0 + r / wavelength_m;
       var gain = power_1m / r2;
-      reals[i] = gain * Math.cos(phase);
-      imags[i] = gain * Math.sin(phase);
+      var cosi = Math.floor((phase * 256) % cosa_wrap);
+      reals[i] = gain * cos_approx[cosi];
+      imags[i] = gain * -cos_approx[cosi + sina_ofs];
     }
   }
   if (benchmark) console.debug('pointSource:', window.performance.now() - st);
