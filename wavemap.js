@@ -98,10 +98,12 @@ if (1) {
   for (var i = 0; i < reals.length; i++) {
     var real = reals[i], imag = imags[i];
     var gain = Math.sqrt(real*real + imag*imag);
-    var phase = Math.atan2(imag, real);
-    var scale = Math.pow(gain, 0.5);
+    // scale is an arbitrary transformation to try to make the best use
+    // of the available colour brightness map.
+    var scale = Math.sqrt(gain);
+    
     var v = 256 * scale;
-    if (Math.abs(phase) > Math.PI/2) {
+    if (real >= 0) {
       // negative amplitude
       img.data[4*i + 0] = v;
       img.data[4*i + 1] = v >> 2;
