@@ -11,13 +11,18 @@ var img = ctx.createImageData(xsize, ysize);
 var room_size_m = 10;
 var wavelength_m = 3e8 / 2.4e9;
 
-var cosa_scale = 256;
+var cosa_scale = 8192;
 var cosa_wrap = (cosa_scale * wavelength_m) | 0;
 var sina_ofs = cosa_wrap >> 2;
 var cosa_size = cosa_wrap + sina_ofs;
 var cos_approx = new Float32Array(cosa_size);
 for (var cosi = 0; cosi < cosa_size; cosi++) {
   cos_approx[cosi] = Math.cos(cosi * Math.PI * 2 / cosa_wrap);
+}
+
+
+function getPhase(real, imag) {
+  return Math.atan2(imag, real);
 }
 
 
@@ -29,6 +34,7 @@ function pointSource(x0, y0, phase0, power_1m) {
   var phases = new Uint32Array(xsize * ysize);
   var st = window.performance.now();
 
+  phase0 = phase0 * wavelength_m / Math.PI / 2;
   x0 *= xsize;
   y0 *= ysize;
   var y_hop = room_size_m / xsize;
@@ -38,16 +44,16 @@ function pointSource(x0, y0, phase0, power_1m) {
   var dy = -y0 * y_hop;
   var i = 0;
   for (var y = 0; y < ysize; y++) {
-    dy += x_hop;
     var dx = -x0 * x_hop;
     for (var x = 0; x < xsize; x++, i++) {
-      dx += x_hop;
       var r2 = dy*dy + dx*dx;
       var r = Math.sqrt(r2);
-      var phase = phase0 * wavelength_m + r;
+      var phase = phase0 + r;
       gains[i] = power_1m / r2;
       phases[i] = (phase * cosa_scale) % cosa_wrap;
+      dx += x_hop;
     }
+    dy += y_hop;
   }
   
   for (var i = 0; i < gains.length; i++) {
@@ -166,7 +172,9 @@ var rendering = 0;
 var movewhich = 0;
 
 document.body.onkeypress = function(e) {
+  var c = String.fromCharCode(e.charCode);
   if (e.charCode >= 0x31 && e.charCode <= 0x39) {
+    // number key
     movewhich = e.charCode - 0x31;
     if (areas[movewhich]) {
       areas[movewhich] = undefined;
@@ -182,6 +190,23 @@ document.body.onkeypress = function(e) {
       renderPointSource(movewhich);
     }
     render();
+  } else {
+    if (c == 'o') {
+      // optimize beamforming for receiver.  We want to zero out all the
+      // phases at the target point.
+      var ptx = 0.6 * xsize, pty = 0.6 * ysize;
+      var pti = pty * xsize + ptx;
+      for (var ai = 0; ai < areas.length; ai++) {
+	var s = sources[ai];
+	var a = areas[ai];
+	if (!a || !s) continue;
+	var current_phase = getPhase(a.reals[pti], a.imags[pti]);
+	s.phase -= current_phase;
+	while (s.phase < 0) s.phase += 2 * Math.PI;
+	renderPointSource(ai);
+      }
+      render();
+    }
   }
 }
 
@@ -209,4 +234,3 @@ canvas.onmousewheel = function(e) {
   renderPointSource(movewhich);
   render();
 }
-
