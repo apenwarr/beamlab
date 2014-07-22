@@ -40,13 +40,23 @@ function addAreas(areas) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
   var gains = new Float32Array(buf, 0, xsize * ysize);
   var phases = new Float32Array(buf, 4 * xsize * ysize);
+  
+  var numareas = 0;
+  for (var ai = 0; ai < areas.length; ai++) {
+    if (areas[ai]) numareas++;
+  }
 
   for (var ai = 0; ai < areas.length; ai++) {
     var a = areas[ai];
     if (!a) continue;
     for (var i = 0; i < a.gains.length; i++) {
-      var x = gains[i]*Math.cos(phases[i]) + a.gains[i]*Math.cos(a.phases[i]);
-      var y = gains[i]*Math.sin(phases[i]) + a.gains[i]*Math.sin(a.phases[i]);
+      // We have to reduce the gain from each transmitter so total output
+      // power stays within regulatory limits.  'gain' is the wave
+      // amplitude, so power is the sqrt of that, and power is what's
+      // regulated.  So we divide by the sqrt of the number of signals.
+      var addgain = a.gains[i] / Math.sqrt(numareas);
+      var x = gains[i]*Math.cos(phases[i]) + addgain*Math.cos(a.phases[i]);
+      var y = gains[i]*Math.sin(phases[i]) + addgain*Math.sin(a.phases[i]);
       gains[i] = Math.sqrt(x*x + y*y);
       phases[i] = Math.atan2(y, x);
       if (phases[i] < 0) phases[i] += 2 * Math.PI;
@@ -63,7 +73,7 @@ function setPix(img, i, val) {
     var c = minuscolor;
     val = -val;
   }
-  var scale = Math.pow(val, 0.7);
+  var scale = Math.pow(val, 0.5);
   for (var j = 0; j < 3; j++) {
     img.data[4*i + j] = c[j] * scale;
   }
@@ -103,8 +113,8 @@ function render() {
   ctx.strokeStyle = 'white';
   ctx.ellipse(ptx, pty, xsize/100, ysize/100, 0, Math.PI*2, 0);
   ctx.stroke();
-  
-  console.debug("power at point:", area.gains[pti])
+  console.debug("power at point:", 
+		10 * Math.log(Math.pow(area.gains[pti], 2),10));
 }
 
 render();
@@ -144,5 +154,11 @@ canvas.onmousedown = function(e) {
 
 canvas.onmouseup = function(e) {
   rendering = 0;
+}
+
+canvas.onmousewheel = function(e) {
+  sources[movewhich][2] += e.wheelDeltaX / 500 * Math.PI;
+  renderPoint(movewhich);
+  render();
 }
 
