@@ -24,6 +24,8 @@ function pointSource(x0, y0, phase0, power_1m) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
   var reals = new Float32Array(buf, 0, xsize * ysize);
   var imags = new Float32Array(buf, 4 * xsize * ysize);
+  var gains = new Float32Array(xsize * ysize);
+  var phases = new Uint32Array(xsize * ysize);
   var st = window.performance.now();
 if (1) {
   x0 *= xsize;
@@ -37,12 +39,18 @@ if (1) {
       var r2 = dy*dy + dx*dx;
       var r = Math.sqrt(r2);
       var phase = phase0 + r / wavelength_m;
-      var gain = power_1m / r2;
-      var cosi = Math.floor((phase * 256) % cosa_wrap);
-      reals[i] = gain * cos_approx[cosi];
-      imags[i] = gain * -cos_approx[cosi + sina_ofs];
+      gains[i] = power_1m / r2;
+      phases[i] = (phase * 256) % cosa_wrap;
     }
   }
+  
+  for (var i = 0; i < gains.length; i++) {
+    var gain = gains[i];
+    var phase = phases[i];
+    reals[i] = gain * cos_approx[phase];
+    imags[i] = gain * -cos_approx[phase + sina_ofs];
+  }
+
   if (benchmark) console.debug('pointSource:', window.performance.now() - st);
 }
   return { reals: reals, imags: imags };
