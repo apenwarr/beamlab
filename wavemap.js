@@ -115,6 +115,15 @@ function render() {
   ctx.stroke();
   console.debug("power at point:", 
 		10 * Math.log(Math.pow(area.gains[pti], 2),10));
+  
+  ctx.strokeStyle = '#0c0';
+  ctx.textAlign = 'center';
+  ctx.shadowOffsetX = -1;
+  ctx.shadowColor = 'black';
+  for (var i = 0; i < sources.length; i++) {
+    if (!areas[i]) continue;
+    ctx.strokeText(i+1, sources[i][0] * xsize, sources[i][1] * ysize);
+  }
 }
 
 render();
