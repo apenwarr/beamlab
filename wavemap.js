@@ -1,5 +1,6 @@
 'use strict';
-var xsize = 400, ysize = 400;
+var benchmark = 1;
+var xsize = 1000, ysize = 1000;
 var canvas = document.getElementById('field');
 canvas.width = xsize;
 canvas.height = ysize;
@@ -13,8 +14,8 @@ var wavelength_m = 3e8 / 2.4e9;
 
 function pointSource(x0, y0, phase0, power_1m) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
-  var gains = new Float32Array(buf, 0, xsize * ysize);
-  var phases = new Float32Array(buf, 4 * xsize * ysize);
+  var reals = new Float32Array(buf, 0, xsize * ysize);
+  var imags = new Float32Array(buf, 4 * xsize * ysize);
   var st = window.performance.now();
 if (1) {
   x0 *= xsize;
@@ -22,52 +23,51 @@ if (1) {
   
   for (var y = 0; y < ysize; y++) {
     var i = y * xsize;
+    var dy = (y - y0) * room_size_m / xsize;
     for (var x = 0; x < xsize; x++, i++) {
-      var dy = (y - y0) * room_size_m / xsize;
       var dx = (x - x0) * room_size_m / ysize;
       var r2 = dy*dy + dx*dx;
       var r = Math.sqrt(r2);
-      phases[i] = (phase0 + r / wavelength_m) % (2 * Math.PI);
-      gains[i] = power_1m / r2;
+      var phase = phase0 + r / wavelength_m;
+      var gain = power_1m / r2;
+      reals[i] = gain * Math.cos(phase);
+      imags[i] = gain * Math.sin(phase);
     }
   }
-  console.debug('pointSource render time:', window.performance.now() - st);
+  if (benchmark) console.debug('pointSource:', window.performance.now() - st);
 }
-  return { gains: gains, phases: phases };
+  return { reals: reals, imags: imags };
 }
 
 
 function addAreas(areas) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
-  var gains = new Float32Array(buf, 0, xsize * ysize);
-  var phases = new Float32Array(buf, 4 * xsize * ysize);
+  var reals = new Float32Array(buf, 0, xsize * ysize);
+  var imags = new Float32Array(buf, 4 * xsize * ysize);
 
+  // We have to reduce the gain from each transmitter so total output
+  // power stays within regulatory limits.  'gain' is the wave
+  // amplitude, so power is the sqrt of that, and power is what's
+  // regulated.  So we divide by the sqrt of the number of signals.
   var numareas = 0;
   for (var ai = 0; ai < areas.length; ai++) {
     if (areas[ai]) numareas++;
   }
+  var regulatory_factor = 1 / Math.sqrt(numareas);  
   
   var st = window.performance.now();
 if (1) {
   for (var ai = 0; ai < areas.length; ai++) {
     var a = areas[ai];
     if (!a) continue;
-    for (var i = 0; i < a.gains.length; i++) {
-      // We have to reduce the gain from each transmitter so total output
-      // power stays within regulatory limits.  'gain' is the wave
-      // amplitude, so power is the sqrt of that, and power is what's
-      // regulated.  So we divide by the sqrt of the number of signals.
-      var addgain = a.gains[i] / Math.sqrt(numareas);
-      var x = gains[i]*Math.cos(phases[i]) + addgain*Math.cos(a.phases[i]);
-      var y = gains[i]*Math.sin(phases[i]) + addgain*Math.sin(a.phases[i]);
-      gains[i] = Math.sqrt(x*x + y*y);
-      phases[i] = Math.atan2(y, x);
-      if (phases[i] < 0) phases[i] += 2 * Math.PI;
+    for (var i = 0; i < a.reals.length; i++) {
+      reals[i] += a.reals[i] * regulatory_factor;
+      imags[i] += a.imags[i] * regulatory_factor;
     }
   }
-  console.debug('addAreas time:', window.performance.now() - st);
+  if (benchmark) console.debug('addAreas:', window.performance.now() - st);
 }
-  return { gains: gains, phases: phases };
+  return { reals: reals, imags: imags };
 }
 
 
@@ -91,14 +91,17 @@ for (var i = 0; i < sources.length; i++) {
 
 function render() {
   area = addAreas(areas);
-  var phases = area.phases;
-  var gains = area.gains;
+  var reals = area.reals;
+  var imags = area.imags;
   var st = window.performance.now();
 if (1) {
-  for (var i = 0; i < gains.length; i++) {
-    var scale = Math.pow(gains[i], 0.5);
+  for (var i = 0; i < reals.length; i++) {
+    var real = reals[i], imag = imags[i];
+    var gain = Math.sqrt(real*real + imag*imag);
+    var phase = Math.atan2(imag, real);
+    var scale = Math.pow(gain, 0.5);
     var v = 256 * scale;
-    if (phases[i] > Math.PI/2 && phases[i] < Math.PI*3/2) {
+    if (Math.abs(phase) > Math.PI/2) {
       // negative amplitude
       img.data[4*i + 0] = v;
       img.data[4*i + 1] = v >> 2;
@@ -113,8 +116,8 @@ if (1) {
       img.data[4*i + 3] = 255;
     }
   }
+  if (benchmark) console.debug('copy time:', window.performance.now() - st);
 }
-//  console.debug('copy time:', window.performance.now() - st);
   ctx.putImageData(img, 0, 0);
   
   var ptx = 0.6 * xsize, pty = 0.6 * ysize;
@@ -122,8 +125,9 @@ if (1) {
   ctx.strokeStyle = 'white';
   ctx.ellipse(ptx, pty, xsize/100, ysize/100, 0, Math.PI*2, 0);
   ctx.stroke();
-  console.debug("power at point:", 
-		10 * Math.log(Math.pow(area.gains[pti], 2),10));
+  var ptgain2 = (area.reals[pti]*area.reals[pti] +
+		 area.imags[pti]*area.imags[pti]);
+  console.debug("power at point:", 10 * Math.log(ptgain2, 10));
   
   ctx.strokeStyle = '#0c0';
   ctx.textAlign = 'center';
