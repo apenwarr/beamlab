@@ -81,16 +81,16 @@ function setPix(img, i, val) {
 }
 
 
-var sources = [[0.3, 0.3, 0, 1],
-	       [0.3, 0.3 + wavelength_m/room_size_m*7/2, 0, 1],
-	       [0.3 + wavelength_m/room_size_m*7/2, 0.3, 0, 1]];
+var sources = [{x:0.3, y:0.3, phase:0, gain:1},
+	       {x:0.3, y:0.3 + wavelength_m/room_size_m*7/2, phase:0, gain:1},
+	       {x:0.3 + wavelength_m/room_size_m*7/2, y:0.3, phase:0, gain:1}];
 var areas = [];
 var area;
 
 
 function renderPoint(i) {
   var s = sources[i];
-  areas[i] = pointSource(s[0], s[1], s[2], s[3]);
+  areas[i] = pointSource(s.x, s.y, s.phase, s.gain);
 }
 
 
@@ -122,7 +122,7 @@ function render() {
   ctx.shadowColor = 'black';
   for (var i = 0; i < sources.length; i++) {
     if (!areas[i]) continue;
-    ctx.strokeText(i+1, sources[i][0] * xsize, sources[i][1] * ysize);
+    ctx.strokeText(i+1, sources[i].x * xsize, sources[i].y * ysize);
   }
 }
 
@@ -137,8 +137,12 @@ document.body.onkeypress = function(e) {
       areas[movewhich] = undefined;
     } else {
       if (!sources[movewhich]) {
-	sources[movewhich] = [0.3, 0.3 + wavelength_m/room_size_m*8/2*movewhich, 
-			      0, 1];
+	sources[movewhich] = {
+          x: 0.3,
+	  y: 0.3 + wavelength_m/room_size_m*8/2*movewhich, 
+	  phase: 0,
+	  gain: 1
+	};
       }
       renderPoint(movewhich);
     }
@@ -149,8 +153,8 @@ document.body.onkeypress = function(e) {
 canvas.onmousemove = function(e) {
   if (rendering) {
     var s = sources[movewhich];
-    s[0] = e.x / canvas.clientWidth;
-    s[1] = e.y / canvas.clientHeight;
+    s.x = e.x / canvas.clientWidth;
+    s.y = e.y / canvas.clientHeight;
     renderPoint(movewhich);
     render();
   }
@@ -166,7 +170,7 @@ canvas.onmouseup = function(e) {
 }
 
 canvas.onmousewheel = function(e) {
-  sources[movewhich][2] += e.wheelDeltaX / 500 * Math.PI;
+  sources[movewhich].phase += e.wheelDeltaX / 500 * Math.PI;
   renderPoint(movewhich);
   render();
 }
