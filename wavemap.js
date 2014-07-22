@@ -62,6 +62,8 @@ if (1) {
     if (!a) continue;
     for (var i = 0; i < a.reals.length; i++) {
       reals[i] += a.reals[i] * regulatory_factor;
+    }
+    for (var i = 0; i < a.imags.length; i++) {
       imags[i] += a.imags[i] * regulatory_factor;
     }
   }
