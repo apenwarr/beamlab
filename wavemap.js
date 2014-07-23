@@ -175,16 +175,18 @@ function render() {
   if (benchmark) console.debug('copy time:', window.performance.now() - st);
   ctx.putImageData(img, 0, 0);
   
-  var ptx = rx_x * xsize, pty = rx_y * ysize;
+  var ptx = (rx_x * xsize) | 0, pty = (rx_y * ysize) | 0;
   var pti = pty * xsize + ptx;
+  ctx.beginPath();
   ctx.strokeStyle = 'white';
   ctx.ellipse(ptx, pty, xsize/100, ysize/100, 0, Math.PI*2, 0);
   ctx.stroke();
   var ptgain2 = (area.reals[pti]*area.reals[pti] +
 		 area.imags[pti]*area.imags[pti]);
-  console.debug("power at point:", ptgain2, '=',
+  console.debug('power at point:', ptgain2, '=',
 		10 * Math.log(ptgain2)/Math.log(10), 'dBm');
   
+  ctx.beginPath();
   ctx.strokeStyle = '#0c0';
   ctx.textAlign = 'center';
   ctx.shadowOffsetX = -1;
@@ -196,8 +198,26 @@ function render() {
 }
 
 render();
-var rendering = 0;
+var moving = 0;
 var movewhich = 0;
+
+
+function beamform_optimize() {
+  // optimize beamforming for receiver.  We want to zero out all the
+  // phases at the target point.
+  var ptx = (rx_x * xsize) | 0, pty = (rx_y * ysize) | 0;
+  var pti = pty * xsize + ptx;
+  for (var ai = 0; ai < areas.length; ai++) {
+    var s = sources[ai];
+    var a = areas[ai];
+    if (!a || !s) continue;
+    var current_phase = getPhase(a.reals[pti], a.imags[pti]);
+    s.phase -= current_phase;
+    while (s.phase < 0) s.phase += 2 * Math.PI;
+    renderPointSource(ai);
+  }
+}
+
 
 document.body.onkeypress = function(e) {
   var c = String.fromCharCode(e.charCode);
@@ -209,8 +229,8 @@ document.body.onkeypress = function(e) {
     } else {
       if (!sources[movewhich]) {
 	sources[movewhich] = {
-          y: 0.3,
-	  x: 0.3 - wavelength_m/room_size_m*3/2*movewhich, 
+          x: 0.3,
+	  y: 0.3 + wavelength_m/room_size_m*3/2*movewhich, 
 	  phase: 0,
 	  gain: 1
 	};
@@ -218,20 +238,10 @@ document.body.onkeypress = function(e) {
       renderPointSource(movewhich);
     }
     render();
+  } else if (c == 'r') {
+    movewhich = 'r';
   } else if (c == 'o') {
-    // optimize beamforming for receiver.  We want to zero out all the
-    // phases at the target point.
-    var ptx = rx_x * xsize, pty = rx_y * ysize;
-    var pti = pty * xsize + ptx;
-    for (var ai = 0; ai < areas.length; ai++) {
-      var s = sources[ai];
-      var a = areas[ai];
-      if (!a || !s) continue;
-      var current_phase = getPhase(a.reals[pti], a.imags[pti]);
-      s.phase -= current_phase;
-      while (s.phase < 0) s.phase += 2 * Math.PI;
-      renderPointSource(ai);
-    }
+    beamform_optimize();
     render();
   } else if (c == 'O') {
     // optimize *against* the receiver: try to make it so the receiver
@@ -251,7 +261,7 @@ document.body.onkeypress = function(e) {
     // FIXME: I think there's probably a better way to do this by being
     // more flexible about the angles, rather than just limiting to 0 and pi.
     // (I know this because 'randomize' sometimes gives even better results :))
-    var ptx = rx_x * xsize, pty = rx_y * ysize;
+    var ptx = (rx_x * xsize) | 0, pty = (rx_y * ysize) | 0;
     var pti = pty * xsize + ptx;
     
     var getBinMag = function(binbits) {
@@ -306,26 +316,34 @@ document.body.onkeypress = function(e) {
 canvas.onmousemove = function(e) {
   var mousex_frac = e.x / canvas.clientWidth;
   var mousey_frac = e.y / canvas.clientHeight;
-  if (rendering) {
-    var s = sources[movewhich];
-    s.x = mousex_frac;
-    s.y = mousey_frac;
-    renderPointSource(movewhich);
+  if (moving) {
+    if (movewhich == 'r') {
+      rx_x = mousex_frac;
+      rx_y = mousey_frac;
+      beamform_optimize();
+    } else {
+      var s = sources[movewhich];
+      s.x = mousex_frac;
+      s.y = mousey_frac;
+      renderPointSource(movewhich);
+    }
     render();
   }
 }
 
 canvas.onmousedown = function(e) {
-  rendering = 1;
+  moving = 1;
   canvas.onmousemove(e);
 }
 
 canvas.onmouseup = function(e) {
-  rendering = 0;
+  moving = 0;
 }
 
 canvas.onmousewheel = function(e) {
-  sources[movewhich].phase += e.wheelDeltaX / 500 * Math.PI;
-  renderPointSource(movewhich);
+  if (sources[movewhich]) {
+    sources[movewhich].phase += e.wheelDeltaX / 500 * Math.PI;
+    renderPointSource(movewhich);
+  }
   render();
 }
