@@ -1,17 +1,20 @@
 'use strict';
 var benchmark = 0;
+var room_size_m = 10;
+var base_power_1m = 0.001;  // RSSI (mW) at 1m distance from tx
+var base_gain_1m = Math.sqrt(base_power_1m);
+var wavelength_m = 3e8 / 2.4e9;
 var xsize = 1000, ysize = 1000;
+var rx_x = 0.6, rx_y = 0.6
+
 var canvas = document.getElementById('field');
 canvas.width = xsize;
 canvas.height = ysize;
 var ctx = canvas.getContext('2d');
 var img = ctx.createImageData(xsize, ysize);
 
-var rx_x = 0.6, rx_y = 0.6
 
-var room_size_m = 10;
-var wavelength_m = 3e8 / 2.4e9;
-
+// cos() lookup table (for speed)
 var cosa_scale = 8192;
 var cosa_wrap = (cosa_scale * wavelength_m) | 0;
 var sina_ofs = cosa_wrap >> 2;
@@ -32,7 +35,7 @@ function getPhase(real, imag) {
 }
 
 
-function pointSource(x0, y0, phase0, power_1m) {
+function pointSource(x0, y0, phase0, gain_1m) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
   var reals = new Float32Array(buf, 0, xsize * ysize);
   var imags = new Float32Array(buf, 4 * xsize * ysize);
@@ -55,7 +58,7 @@ function pointSource(x0, y0, phase0, power_1m) {
       var r2 = dy*dy + dx*dx;
       var r = Math.sqrt(r2);
       var phase = phase0 + r;
-      gains[i] = power_1m / r2;
+      gains[i] = base_gain_1m * gain_1m / r2;
       phases[i] = (phase * cosa_scale) % cosa_wrap;
       dx += x_hop;
     }
@@ -83,11 +86,29 @@ function addAreas(areas) {
   // power stays within regulatory limits.  'gain' is the wave
   // amplitude, so power is the sqrt of that, and power is what's
   // regulated.  So we divide by the sqrt of the number of signals.
+  // 
+  // FCC says we have to *additionally* reduce the transmit power by
+  // 1dB for each 3dB of antenna gain over 6dBi.  Our simulation uses
+  // ideal isotropic antennas (0dBi) but the beamforming gain is
+  // 10*log10(numareas).  (Again here, that limit is on power, not
+  // amplitude, so take the sqrt.)
+  // 
+  // TODO(apenwarr): not sure if these rules are the same for 5 GHz band.
   var numareas = 0;
   for (var ai = 0; ai < areas.length; ai++) {
     if (areas[ai]) numareas++;
   }
-  var regulatory_factor = 1 / Math.sqrt(numareas);  
+  // we use 0dBi antennas, but "better" ones are more realistic, and punish
+  // us more for FCC purposes, so be conservative here.
+  var assumed_ant_gain = 6;
+  var ant_gain_db = assumed_ant_gain + 10*Math.log(numareas)/Math.log(10);
+  var ant_excess_db = ant_gain_db > 6 ? ant_gain_db - 6 : 0;
+  var fcc_array_factor = Math.sqrt(Math.pow(10, -ant_excess_db/3/10));
+  var fcc_per_ant_factor = 1 / Math.sqrt(numareas)
+  var regulatory_factor = fcc_per_ant_factor * fcc_array_factor;
+  console.debug('regulatory factor:', regulatory_factor,
+		'per_ant factor:', fcc_per_ant_factor,
+		'array factor:', fcc_array_factor);
   
   var st = window.performance.now();
   for (var ai = 0; ai < areas.length; ai++) {
@@ -133,7 +154,7 @@ function render() {
     var gain = Math.sqrt(real*real + imag*imag);
     // scale is an arbitrary transformation to try to make the best use
     // of the available colour brightness map.
-    var scale = Math.sqrt(gain);
+    var scale = Math.sqrt(gain / base_gain_1m);
     
     var v = 256 * scale;
     if (real >= 0) {
@@ -161,7 +182,8 @@ function render() {
   ctx.stroke();
   var ptgain2 = (area.reals[pti]*area.reals[pti] +
 		 area.imags[pti]*area.imags[pti]);
-  console.debug("power at point:", 10 * Math.log(ptgain2, 10));
+  console.debug("power at point:", ptgain2, '=',
+		10 * Math.log(ptgain2)/Math.log(10), 'dBm');
   
   ctx.strokeStyle = '#0c0';
   ctx.textAlign = 'center';
@@ -282,10 +304,12 @@ document.body.onkeypress = function(e) {
 }
 
 canvas.onmousemove = function(e) {
+  var mousex_frac = e.x / canvas.clientWidth;
+  var mousey_frac = e.y / canvas.clientHeight;
   if (rendering) {
     var s = sources[movewhich];
-    s.x = e.x / canvas.clientWidth;
-    s.y = e.y / canvas.clientHeight;
+    s.x = mousex_frac;
+    s.y = mousey_frac;
     renderPointSource(movewhich);
     render();
   }
