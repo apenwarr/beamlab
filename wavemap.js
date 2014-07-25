@@ -25,13 +25,23 @@ for (var cosi = 0; cosi < cosa_size; cosi++) {
 }
 
 
+function getPhase(real, imag) {
+  return Math.atan2(imag, real);
+}
+
+
 function getMag(real, imag) {
   return Math.sqrt(real*real + imag*imag);
 }
 
 
-function getPhase(real, imag) {
-  return Math.atan2(imag, real);
+function getPower(real, imag) {
+  return (real*real + imag*imag) / 2;
+}
+
+
+function todB(v) {
+  return 10 * Math.log(v)/Math.log(10);
 }
 
 
@@ -77,6 +87,9 @@ function pointSource(x0, y0, phase0, gain_1m) {
 }
 
 
+var regulatory_factor = 0;
+
+
 function addAreas(areas) {
   var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
   var reals = new Float32Array(buf, 0, xsize * ysize);
@@ -86,7 +99,11 @@ function addAreas(areas) {
   // power stays within regulatory limits.  'gain' is the wave
   // amplitude, so power is the sqrt of that, and power is what's
   // regulated.  So we divide by the sqrt of the number of signals.
-  // 
+  var numareas = 0;
+  for (var ai = 0; ai < areas.length; ai++) {
+    if (areas[ai]) numareas++;
+  }
+  var fcc_per_ant_factor = 1 / Math.sqrt(numareas)
   // FCC says we have to *additionally* reduce the transmit power by
   // 1dB for each 3dB of antenna gain over 6dBi.  Our simulation uses
   // ideal isotropic antennas (0dBi) but the beamforming gain is
@@ -94,18 +111,15 @@ function addAreas(areas) {
   // amplitude, so take the sqrt.)
   // 
   // TODO(apenwarr): not sure if these rules are the same for 5 GHz band.
-  var numareas = 0;
-  for (var ai = 0; ai < areas.length; ai++) {
-    if (areas[ai]) numareas++;
-  }
   // we use 0dBi antennas, but "better" ones are more realistic, and punish
   // us more for FCC purposes, so be conservative here.
+  var bf_penalty_enable = document.getElementById('bfpenalty').checked;
   var assumed_ant_gain = 6;
-  var ant_gain_db = assumed_ant_gain + 10*Math.log(numareas)/Math.log(10);
+  var ant_gain_db = assumed_ant_gain + todB(numareas);
   var ant_excess_db = ant_gain_db > 6 ? ant_gain_db - 6 : 0;
+  if (!bf_penalty_enable) ant_excess_db = 0;
   var fcc_array_factor = Math.sqrt(Math.pow(10, -ant_excess_db/3/10));
-  var fcc_per_ant_factor = 1 / Math.sqrt(numareas)
-  var regulatory_factor = fcc_per_ant_factor * fcc_array_factor;
+  regulatory_factor = fcc_per_ant_factor * fcc_array_factor;
   console.debug('regulatory factor:', regulatory_factor,
 		'per_ant factor:', fcc_per_ant_factor,
 		'array factor:', fcc_array_factor);
@@ -139,8 +153,8 @@ function renderPointSource(i) {
 }
 
 
-for (var i = 0; i < sources.length; i++) {
-  renderPointSource(i);
+function replaceText(id, v) {
+  document.getElementById(id).innerText = v;
 }
 
 
@@ -181,23 +195,27 @@ function render() {
   ctx.strokeStyle = 'white';
   ctx.ellipse(ptx, pty, xsize/100, ysize/100, 0, Math.PI*2, 0);
   ctx.stroke();
-  var ptgain2 = (area.reals[pti]*area.reals[pti] +
-		 area.imags[pti]*area.imags[pti]);
-  console.debug('power at point:', ptgain2, '=',
-		10 * Math.log(ptgain2)/Math.log(10), 'dBm');
-  
-  ctx.beginPath();
-  ctx.strokeStyle = '#0c0';
-  ctx.textAlign = 'center';
-  ctx.shadowOffsetX = -1;
-  ctx.shadowColor = 'black';
-  for (var i = 0; i < sources.length; i++) {
-    if (!areas[i]) continue;
-    ctx.strokeText(i+1, sources[i].x * xsize, sources[i].y * ysize);
+  var ptpower = getPower(area.reals[pti], area.imags[pti]);
+  var ptdbm = todB(ptpower);
+  var bestpower = 0;
+  for (var ai = 0; ai < areas.length; ai++) {
+    if (!areas[ai]) continue;
+    // we *don't* multiply by regulatory_factor here, because we're comparing
+    // against a one-antenna transmitter at maximum power, not one of several
+    // transmitters each at fractional power.
+    var power = getPower(areas[ai].reals[pti], areas[ai].imags[pti]);
+    console.debug('power', ai, '=', todB(power));
+    if (power > bestpower) bestpower = power;
   }
+  var bestdbm = todB(bestpower);
+  console.debug('power at point:', ptpower, '=', ptdbm, 'dBm');
+  replaceText('rxpower', ptdbm.toFixed(1));
+  replaceText('rxphase',
+      (getPhase(area.reals[pti], area.imags[pti]) * 360 / 2 / Math.PI).toFixed(0));
+  replaceText('bfgain', (ptdbm - bestdbm).toFixed(1));
 }
 
-render();
+
 var moving = 0;
 var movewhich = 0;
 
@@ -219,11 +237,36 @@ function beamform_optimize() {
 }
 
 
-document.body.onkeypress = function(e) {
-  var c = String.fromCharCode(e.charCode);
-  if (e.charCode >= 0x31 && e.charCode <= 0x39) {
+function updateButtons() {
+  // transmitter buttons
+  for (var i = 0; i < 9; i++) {
+    var el = document.getElementById('tx' + (i+1));
+    if (movewhich == i) {
+      el.style.border = '2px solid black';
+    } else {
+      el.style.border = '1px solid black';
+    }
+    if (areas[i]) {
+      el.style.background = '#888';
+    } else {
+      el.style.background = '#fff';
+    }
+  }
+  
+  // receive button
+  var el = document.getElementById('rx1');
+  if (movewhich == 'r') {
+    el.style.border = '2px solid black';
+  } else {
+    el.style.border = '1px solid black';
+  }
+}
+
+
+function handleKey(c) {
+  if (c >= '1' && c <= '9') {
     // number key
-    movewhich = e.charCode - 0x31;
+    movewhich = c - '1';
     if (areas[movewhich]) {
       areas[movewhich] = undefined;
     } else {
@@ -238,8 +281,15 @@ document.body.onkeypress = function(e) {
       renderPointSource(movewhich);
     }
     render();
+    updateButtons();
   } else if (c == 'r') {
     movewhich = 'r';
+    updateButtons();
+  } else if (c == 'p') {
+    // toggle beamforming penalty
+    var el = document.getElementById('bfpenalty');
+    el.checked = !el.checked;
+    render();
   } else if (c == 'o') {
     beamform_optimize();
     render();
@@ -313,6 +363,12 @@ document.body.onkeypress = function(e) {
   }
 }
 
+
+document.body.onkeypress = function(e) {
+  handleKey(String.fromCharCode(e.charCode));
+}
+
+
 canvas.onmousemove = function(e) {
   var mousex_frac = e.x / canvas.clientWidth;
   var mousey_frac = e.y / canvas.clientHeight;
@@ -331,14 +387,18 @@ canvas.onmousemove = function(e) {
   }
 }
 
+
 canvas.onmousedown = function(e) {
   moving = 1;
   canvas.onmousemove(e);
+  updateButtons();
 }
+
 
 canvas.onmouseup = function(e) {
   moving = 0;
 }
+
 
 canvas.onmousewheel = function(e) {
   if (sources[movewhich]) {
@@ -347,3 +407,28 @@ canvas.onmousewheel = function(e) {
   }
   render();
 }
+
+
+function clicked(e) {
+  console.debug('clicked', e.id, e);
+  if (e.id.indexOf('tx') == 0) {
+    handleKey(e.id.substr(2, 1));
+  } else if (e.id == 'rx1') {
+    handleKey('r');
+  } else if (e.id == 'bfpenalty') {
+    render();
+  } else if (e.id == 'opt') {
+    handleKey('o');
+  } else if (e.id == 'anti-opt') {
+    handleKey('O');
+  } else if (e.id == 'rand') {
+    handleKey('x');
+  }
+}
+
+
+for (var i = 0; i < sources.length; i++) {
+  renderPointSource(i);
+}
+updateButtons();
+render();
