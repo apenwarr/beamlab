@@ -25,6 +25,13 @@ for (var cosi = 0; cosi < cosa_size; cosi++) {
 }
 
 
+if (window && window.performance && window.performance.now) {
+  var getPerf = function() { return window.performance.now(); };
+} else {
+  var getPerf = function() { return (new Date().getTime()); };
+}
+
+
 function getPhase(real, imag) {
   return Math.atan2(imag, real);
 }
@@ -45,13 +52,19 @@ function todB(v) {
 }
 
 
-function pointSource(x0, y0, phase0, gain_1m) {
-  var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
-  var reals = new Float32Array(buf, 0, xsize * ysize);
-  var imags = new Float32Array(buf, 4 * xsize * ysize);
-  var gains = new Float32Array(xsize * ysize);
-  var phases = new Uint32Array(xsize * ysize);
-  var st = window.performance.now();
+function pointSource(o, x0, y0, phase0, gain_1m) {
+  var st = getPerf();
+
+  // recycle the buffer objects as they can take several milliseconds to
+  // allocate each time.
+  if (!o.reals || !o.imags || !o.gains || !o.phases) {
+    var buf = new ArrayBuffer(4 * 4 * xsize * ysize);
+    o.reals = new Float32Array(buf, 0 * 4 * xsize * ysize, xsize * ysize);
+    o.imags = new Float32Array(buf, 1 * 4 * xsize * ysize, xsize * ysize);
+    o.gains = new Float32Array(buf, 2 * 4 * xsize * ysize, xsize * ysize);
+    o.phases = new Uint32Array(buf, 3 * 4 * xsize * ysize, xsize * ysize);
+  }
+  var gains = o.gains, phases = o.phases, reals = o.reals, imags = o.imags;
 
   phase0 = phase0 * wavelength_m / Math.PI / 2;
   x0 *= xsize;
@@ -74,26 +87,30 @@ function pointSource(x0, y0, phase0, gain_1m) {
     }
     dy += y_hop;
   }
-  
+  if (benchmark) console.debug('pointSource0:', getPerf() - st);
+
   for (var i = 0; i < gains.length; i++) {
-    var gain = gains[i];
-    var phase = phases[i];
-    reals[i] = gain * cos_approx[phase];
-    imags[i] = gain * -cos_approx[phase + sina_ofs];
+    reals[i] = gains[i] * cos_approx[phases[i]];
+    imags[i] = gains[i] * -cos_approx[phases[i] + sina_ofs];
   }
 
-  if (benchmark) console.debug('pointSource:', window.performance.now() - st);
-  return { reals: reals, imags: imags };
+  if (benchmark) console.debug('pointSource:', getPerf() - st);
+  return o;
 }
 
 
 var regulatory_factor = 0;
 
 
-function addAreas(areas) {
-  var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
-  var reals = new Float32Array(buf, 0, xsize * ysize);
-  var imags = new Float32Array(buf, 4 * xsize * ysize);
+function addAreas(o, areas) {
+  // recycle the buffer objects as they can take several milliseconds to
+  // allocate each time.
+  if (!o.reals || !o.imags) {
+    var buf = new ArrayBuffer(2 * 4 * xsize * ysize);
+    o.reals = new Float32Array(buf, 0 * 4 * xsize * ysize, xsize * ysize);
+    o.imags = new Float32Array(buf, 1 * 4 * xsize * ysize, xsize * ysize);
+  }
+  var reals = o.reals, imags = o.imags;
 
   // We have to reduce the gain from each transmitter so total output
   // power stays within regulatory limits.  'gain' is the wave
@@ -120,11 +137,14 @@ function addAreas(areas) {
   if (!bf_penalty_enable) ant_excess_db = 0;
   var fcc_array_factor = Math.sqrt(Math.pow(10, -ant_excess_db/3/10));
   regulatory_factor = fcc_per_ant_factor * fcc_array_factor;
-  console.debug('regulatory factor:', regulatory_factor,
+  if (0) console.debug('regulatory factor:', regulatory_factor,
 		'per_ant factor:', fcc_per_ant_factor,
 		'array factor:', fcc_array_factor);
   
-  var st = window.performance.now();
+  var st = getPerf();
+  for (var i = 0; i < reals.length; i++) {
+    reals[i] = imags[i] = 0;
+  }
   for (var ai = 0; ai < areas.length; ai++) {
     var a = areas[ai];
     if (!a) continue;
@@ -135,8 +155,8 @@ function addAreas(areas) {
       imags[i] += a.imags[i] * regulatory_factor;
     }
   }
-  if (benchmark) console.debug('addAreas:', window.performance.now() - st);
-  return { reals: reals, imags: imags };
+  if (benchmark) console.debug('addAreas:', getPerf() - st);
+  return o;
 }
 
 
@@ -149,7 +169,7 @@ var area;
 
 function renderPointSource(i) {
   var s = sources[i];
-  areas[i] = pointSource(s.x, s.y, s.phase, s.gain);
+  areas[i] = pointSource(areas[i] || {}, s.x, s.y, s.phase, s.gain);
 }
 
 
@@ -158,37 +178,7 @@ function replaceText(id, v) {
 }
 
 
-function render() {
-  area = addAreas(areas);
-  var reals = area.reals;
-  var imags = area.imags;
-  var st = window.performance.now();
-  for (var i = 0; i < reals.length; i++) {
-    var real = reals[i], imag = imags[i];
-    var gain = Math.sqrt(real*real + imag*imag);
-    // scale is an arbitrary transformation to try to make the best use
-    // of the available colour brightness map.
-    var scale = Math.sqrt(gain / base_gain_1m);
-    
-    var v = 256 * scale;
-    if (real >= 0) {
-      // negative amplitude
-      img.data[4*i + 0] = v;
-      img.data[4*i + 1] = v >> 2;
-      img.data[4*i + 2] = v >> 2;
-      img.data[4*i + 3] = 255;
-    } else {
-      // positive amplitude
-      var v = 256 * scale;
-      img.data[4*i + 0] = 0;
-      img.data[4*i + 1] = v >> 1;
-      img.data[4*i + 2] = v >> 0;
-      img.data[4*i + 3] = 255;
-    }
-  }
-  if (benchmark) console.debug('copy time:', window.performance.now() - st);
-  ctx.putImageData(img, 0, 0);
-  
+function updateRxStatus() {
   var ptx = (rx_x * xsize) | 0, pty = (rx_y * ysize) | 0;
   var pti = pty * xsize + ptx;
   ctx.beginPath();
@@ -204,15 +194,56 @@ function render() {
     // against a one-antenna transmitter at maximum power, not one of several
     // transmitters each at fractional power.
     var power = getPower(areas[ai].reals[pti], areas[ai].imags[pti]);
-    console.debug('power', ai, '=', todB(power));
     if (power > bestpower) bestpower = power;
   }
   var bestdbm = todB(bestpower);
-  console.debug('power at point:', ptpower, '=', ptdbm, 'dBm');
   replaceText('rxpower', ptdbm.toFixed(1));
   replaceText('rxphase',
       (getPhase(area.reals[pti], area.imags[pti]) * 360 / 2 / Math.PI).toFixed(0));
   replaceText('bfgain', (ptdbm - bestdbm).toFixed(1));
+}
+
+
+var updateTimer = undefined;
+
+
+function delayedUpdateRxStatus() {
+  if (updateTimer) clearTimeout(updateTimer);
+  updateTimer = setTimeout(updateRxStatus, 200);
+}
+
+
+function render() {
+  area = addAreas(area || {}, areas);
+  var reals = area.reals;
+  var imags = area.imags;
+  var st = getPerf();
+  for (var i = 0; i < reals.length; i++) {
+    var real = reals[i], imag = imags[i];
+    var gain = Math.sqrt(real*real + imag*imag);
+    // scale is an arbitrary transformation to try to make the best use
+    // of the available colour brightness map.  There may be a better one
+    // to use.
+    var scale = Math.sqrt(gain / base_gain_1m);
+    
+    var v = 256 * scale;
+    if (real >= 0) {
+      // negative amplitude
+      img.data[4*i + 0] = v;
+      img.data[4*i + 1] = v >> 2;
+      img.data[4*i + 2] = v >> 2;
+      img.data[4*i + 3] = 255;
+    } else {
+      // positive amplitude
+      img.data[4*i + 0] = 0;
+      img.data[4*i + 1] = v >> 1;
+      img.data[4*i + 2] = v >> 0;
+      img.data[4*i + 3] = 255;
+    }
+  }
+  if (benchmark) console.debug('copy time:', getPerf() - st);
+  ctx.putImageData(img, 0, 0);
+  delayedUpdateRxStatus();
 }
 
 
@@ -373,6 +404,7 @@ canvas.onmousemove = function(e) {
   var mousex_frac = e.x / canvas.clientWidth;
   var mousey_frac = e.y / canvas.clientHeight;
   if (moving) {
+    var st = getPerf();
     if (movewhich == 'r') {
       rx_x = mousex_frac;
       rx_y = mousey_frac;
@@ -381,9 +413,17 @@ canvas.onmousemove = function(e) {
       var s = sources[movewhich];
       s.x = mousex_frac;
       s.y = mousey_frac;
+      var et0 = getPerf();
       renderPointSource(movewhich);
     }
+    var et1 = getPerf();
     render();
+    var et2 = getPerf();
+    if (benchmark) {
+      console.debug('pre-pointsource time:', et0 - st);
+      console.debug('pre-render time:', et1 - st);
+      console.debug('full move time:', et2 - st);
+    }
   }
 }
 
